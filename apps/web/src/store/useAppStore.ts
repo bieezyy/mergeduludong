@@ -2,8 +2,9 @@ import { create } from "zustand";
 
 export type OperationMode = "document_merge" | "image_merge" | "split" | "convert";
 
-export type DocumentSubtype = "all" | "pdf" | "docs" | "slide" | "sheets";
+export type DocumentSubtype = "pdf" | "docs" | "slide" | "sheets";
 export type ImageSubtype = "all" | "jpeg" | "png" | "svg";
+export type ConvertTargetFormat = "jpg" | "png" | "svg" | "pdf" | "word" | "docx" | "sheets" | "slides";
 
 export interface WorkspaceFile {
   id: string;
@@ -22,6 +23,7 @@ interface AppState {
   imageSubtype: ImageSubtype;
   splitRange: string;
   splitMode: "range" | "all";
+  convertTarget: ConvertTargetFormat;
   files: WorkspaceFile[];
   isProcessing: boolean;
   statusMessage: string;
@@ -30,6 +32,7 @@ interface AppState {
   setImageSubtype: (subtype: ImageSubtype) => void;
   setSplitRange: (range: string) => void;
   setSplitMode: (splitMode: "range" | "all") => void;
+  setConvertTarget: (target: ConvertTargetFormat) => void;
   addFiles: (newFiles: File[]) => void;
   updateFilePageCount: (id: string, count: number) => void;
   removeFile: (id: string) => void;
@@ -41,10 +44,11 @@ interface AppState {
 
 export const useAppStore = create<AppState>((set) => ({
   currentMode: "document_merge",
-  docSubtype: "all",
+  docSubtype: "pdf",
   imageSubtype: "all",
   splitRange: "",
   splitMode: "range",
+  convertTarget: "pdf",
   files: [],
   isProcessing: false,
   statusMessage: "",
@@ -54,6 +58,7 @@ export const useAppStore = create<AppState>((set) => ({
   setImageSubtype: (subtype) => set({ imageSubtype: subtype }),
   setSplitRange: (range) => set({ splitRange: range }),
   setSplitMode: (splitMode) => set({ splitMode }),
+  setConvertTarget: (target) => set({ convertTarget: target }),
 
   addFiles: (newFiles) =>
     set((state) => {

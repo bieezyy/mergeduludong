@@ -44,8 +44,8 @@ export const Navbar = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // Removed "Semua Format Dokumen"
   const docOptions: { subtype: DocumentSubtype; label: string; icon: React.ReactNode; desc: string }[] = [
-    { subtype: "all", label: "Semua Format Dokumen", icon: <Files className="w-4 h-4" />, desc: "PDF, DOCX, PPTX, XLSX, ODT" },
     { subtype: "pdf", label: "Merge PDF", icon: <FileText className="w-4 h-4 text-red-500" />, desc: "Gabung berkas PDF murni" },
     { subtype: "docs", label: "Merge Docs", icon: <FileText className="w-4 h-4 text-blue-500" />, desc: "Word .docx, .doc, .odt, .rtf" },
     { subtype: "slide", label: "Merge Slide", icon: <Presentation className="w-4 h-4 text-amber-500" />, desc: "PowerPoint .pptx, .ppt, .odp" },
@@ -67,7 +67,7 @@ export const Navbar = () => {
           className="flex items-center gap-2 cursor-pointer select-none"
           onClick={() => {
             setMode("document_merge");
-            setDocSubtype("all");
+            setDocSubtype("pdf");
           }}
         >
           <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-lg shadow-sm">
@@ -96,11 +96,7 @@ export const Navbar = () => {
                 className="flex items-center gap-2 px-3 py-1.5"
               >
                 <Files className="w-4 h-4" />
-                <span>
-                  {docSubtype === "all"
-                    ? "Document Merge"
-                    : docOptions.find((o) => o.subtype === docSubtype)?.label}
-                </span>
+                <span>{docOptions.find((o) => o.subtype === docSubtype)?.label || "Merge PDF"}</span>
               </button>
               <button
                 onClick={(e) => {
@@ -108,7 +104,7 @@ export const Navbar = () => {
                   setDocDropdownOpen(!docDropdownOpen);
                   setImageDropdownOpen(false);
                 }}
-                className="pr-2 pl-0.5 py-1.5 hover:text-blue-700 transition-colors"
+                className="pr-2 pl-0.5 py-1.5 hover:text-blue-700 transition-colors cursor-pointer"
                 title="Pilih jenis dokumen"
               >
                 <ChevronDown className="w-3.5 h-3.5 opacity-70" />
@@ -131,7 +127,7 @@ export const Navbar = () => {
                     }}
                     className={`w-full flex items-start gap-2.5 px-3 py-2 text-left hover:bg-slate-50 transition-colors ${
                       currentMode === "document_merge" && docSubtype === opt.subtype
-                        ? "bg-blue-50/70 text-blue-700"
+                        ? "bg-blue-50/70 text-blue-700 font-semibold"
                         : "text-slate-700"
                     }`}
                   >
@@ -174,7 +170,7 @@ export const Navbar = () => {
                   setImageDropdownOpen(!imageDropdownOpen);
                   setDocDropdownOpen(false);
                 }}
-                className="pr-2 pl-0.5 py-1.5 hover:text-blue-700 transition-colors"
+                className="pr-2 pl-0.5 py-1.5 hover:text-blue-700 transition-colors cursor-pointer"
                 title="Pilih jenis gambar"
               >
                 <ChevronDown className="w-3.5 h-3.5 opacity-70" />
@@ -197,7 +193,7 @@ export const Navbar = () => {
                     }}
                     className={`w-full flex items-start gap-2.5 px-3 py-2 text-left hover:bg-slate-50 transition-colors ${
                       currentMode === "image_merge" && imageSubtype === opt.subtype
-                        ? "bg-blue-50/70 text-blue-700"
+                        ? "bg-blue-50/70 text-blue-700 font-semibold"
                         : "text-slate-700"
                     }`}
                   >

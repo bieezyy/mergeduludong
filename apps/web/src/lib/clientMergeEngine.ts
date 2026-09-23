@@ -1,5 +1,5 @@
 import { PDFDocument, degrees } from "pdf-lib";
-import { WorkspaceFile } from "@/store/useAppStore";
+import { WorkspaceFile, ConvertTargetFormat } from "@/store/useAppStore";
 
 /**
  * Merge multiple PDF files directly in the browser (MDD-203)
@@ -159,7 +159,7 @@ export async function mergeImagesToPdfClientSide(
 /**
  * Helper to convert SVG File to PNG Blob using Canvas
  */
-async function svgToPngBlob(svgFile: File): Promise<Blob> {
+export async function svgToPngBlob(svgFile: File): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(svgFile);
     const img = new Image();
@@ -248,4 +248,97 @@ export async function stitchImagesClientSide(
       else reject(new Error("Gagal membuat canvas blob"));
     }, "image/jpeg", 0.95);
   });
+}
+
+/**
+ * Client-side conversion for image/document formats
+ */
+export async function convertAssetClientSide(
+  file: File,
+  targetFormat: ConvertTargetFormat,
+  onProgress?: (progressText: string) => void
+): Promise<{ blob: Blob; filename: string }> {
+  const baseName = file.name.replace(/\.[^/.]+$/, "");
+  const ext = file.name.split(".").pop()?.toLowerCase() || "";
+
+  onProgress?.(`Menyiapkan konversi ke format ${targetFormat.toUpperCase()}...`);
+
+  // Target: PDF
+  if (targetFormat === "pdf") {
+    if (["jpg", "jpeg", "png", "webp", "svg"].includes(ext)) {
+      const dummyItem: WorkspaceFile = {
+        id: "1",
+        file,
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        rotation: 0,
+      };
+      const blob = await mergeImagesToPdfClientSide([dummyItem], onProgress);
+      return { blob, filename: `${baseName}.pdf` };
+    }
+    if (ext === "pdf") {
+      return { blob: file, filename: `${baseName}-copy.pdf` };
+    }
+  }
+
+  // Target: JPG / PNG
+  if (targetFormat === "jpg" || targetFormat === "png") {
+    const isTargetJpg = targetFormat === "jpg";
+    const mime = isTargetJpg ? "image/jpeg" : "image/png";
+    const outputExt = isTargetJpg ? "jpg" : "png";
+
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth || 800;
+        canvas.height = img.naturalHeight || 600;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return reject(new Error("Canvas context failed"));
+
+        if (isTargetJpg) {
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+        ctx.drawImage(img, 0, 0);
+        URL.revokeObjectURL(url);
+
+        canvas.toBlob((blob) => {
+          if (blob) resolve({ blob, filename: `${baseName}.${outputExt}` });
+          else reject(new Error("Konversi gambar gagal."));
+        }, mime, 0.92);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("Gagal memuat berkas gambar untuk dikonversi."));
+      };
+      img.src = url;
+    });
+  }
+
+  // Target: SVG
+  if (targetFormat === "svg") {
+    // If already SVG, return
+    if (ext === "svg") {
+      return { blob: file, filename: `${baseName}.svg` };
+    }
+    // Embed raster into SVG wrapper
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+    const svgString = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 800 600" width="100%" height="100%">
+  <image href="${dataUrl}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" />
+</svg>`;
+    const blob = new Blob([svgString], { type: "image/svg+xml" });
+    return { blob, filename: `${baseName}.svg` };
+  }
+
+  throw new Error(`Format ${targetFormat.toUpperCase()} membutuhkan layanan backend.`);
 }

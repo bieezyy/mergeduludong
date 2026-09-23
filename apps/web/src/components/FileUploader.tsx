@@ -36,21 +36,7 @@ export const FileUploader = () => {
         acceptedExtensions = [".xlsx", ".xls", ".ods", ".csv"];
         break;
       default:
-        // All documents
-        acceptedExtensions = [
-          ".pdf",
-          ".docx",
-          ".doc",
-          ".odt",
-          ".rtf",
-          ".pptx",
-          ".ppt",
-          ".odp",
-          ".xlsx",
-          ".xls",
-          ".ods",
-          ".csv",
-        ];
+        acceptedExtensions = [".pdf"];
     }
   } else if (currentMode === "image_merge") {
     switch (imageSubtype) {

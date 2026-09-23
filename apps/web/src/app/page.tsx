@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { useAppStore } from "@/store/useAppStore";
+import { useAppStore, ConvertTargetFormat } from "@/store/useAppStore";
 import { FileUploader } from "@/components/FileUploader";
 import { Workspace } from "@/components/Workspace";
 import { GiveACoffee } from "@/components/GiveACoffee";
@@ -10,8 +10,21 @@ import {
   mergeImagesToPdfClientSide,
   stitchImagesClientSide,
   splitPdfClientSide,
+  convertAssetClientSide,
 } from "@/lib/clientMergeEngine";
-import { Loader2, Download, Sparkles, Scissors, Info, AlertTriangle } from "lucide-react";
+import {
+  Loader2,
+  Download,
+  Sparkles,
+  Scissors,
+  Info,
+  AlertTriangle,
+  RefreshCw,
+  FileText,
+  Image as ImageIcon,
+  Sheet,
+  Presentation,
+} from "lucide-react";
 
 export default function HomePage() {
   const {
@@ -20,8 +33,10 @@ export default function HomePage() {
     imageSubtype,
     splitRange,
     splitMode,
+    convertTarget,
     setSplitRange,
     setSplitMode,
+    setConvertTarget,
     files,
     isProcessing,
     statusMessage,
@@ -30,6 +45,7 @@ export default function HomePage() {
 
   const [imageOutputMode, setImageOutputMode] = useState<"pdf" | "stitched">("pdf");
   const [docsNoticeOpen, setDocsNoticeOpen] = useState(false);
+  const [noticeMessage, setNoticeMessage] = useState<string>("");
 
   const triggerDownload = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
@@ -41,6 +57,17 @@ export default function HomePage() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
+
+  const convertOptions: { id: ConvertTargetFormat; label: string; icon: React.ReactNode; isDirect: boolean }[] = [
+    { id: "jpg", label: "JPG", icon: <ImageIcon className="w-4 h-4 text-blue-500" />, isDirect: true },
+    { id: "png", label: "PNG", icon: <ImageIcon className="w-4 h-4 text-purple-500" />, isDirect: true },
+    { id: "svg", label: "SVG", icon: <ImageIcon className="w-4 h-4 text-orange-500" />, isDirect: true },
+    { id: "pdf", label: "PDF", icon: <FileText className="w-4 h-4 text-red-500" />, isDirect: true },
+    { id: "word", label: "Word (.doc)", icon: <FileText className="w-4 h-4 text-blue-600" />, isDirect: false },
+    { id: "docx", label: "Docx", icon: <FileText className="w-4 h-4 text-blue-700" />, isDirect: false },
+    { id: "sheets", label: "Sheets (.xlsx)", icon: <Sheet className="w-4 h-4 text-emerald-600" />, isDirect: false },
+    { id: "slides", label: "Slides (.pptx)", icon: <Presentation className="w-4 h-4 text-amber-600" />, isDirect: false },
+  ];
 
   const handleAction = async () => {
     if (files.length === 0) return;
@@ -78,7 +105,63 @@ export default function HomePage() {
         return;
       }
 
-      // 2. Pure PDF Client-side Merge
+      // 2. Convert Mode
+      if (currentMode === "convert") {
+        const target = files[0];
+        const isClientDirect = ["jpg", "png", "svg", "pdf"].includes(convertTarget);
+
+        if (isClientDirect) {
+          try {
+            setProcessing(true, `Mengonversi ${target.name} ke format ${convertTarget.toUpperCase()}...`);
+            const { blob, filename } = await convertAssetClientSide(target.file, convertTarget, (msg) =>
+              setProcessing(true, msg)
+            );
+            triggerDownload(blob, filename);
+            setProcessing(false);
+            return;
+          } catch (err: any) {
+            // If direct client conversion fails (e.g. Docx to PDF without backend), delegate to backend
+            console.warn("Client conversion fallback:", err);
+          }
+        }
+
+        // Office conversions (Word, Docx, Sheets, Slides, or heterogeneous docx to pdf) -> Delegate to backend
+        setProcessing(true, `Memproses konversi ke format ${convertTarget.toUpperCase()}...`);
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+
+        const formData = new FormData();
+        formData.append("jobId", `job-${Date.now()}`);
+        formData.append("operation", "convert_file");
+        formData.append("options", JSON.stringify({ targetFormat: convertTarget }));
+        formData.append("files", target.file);
+
+        let res: Response;
+        try {
+          res = await fetch(`${apiUrl}/api/v1/jobs/upload`, {
+            method: "POST",
+            body: formData,
+          });
+        } catch (networkErr) {
+          setProcessing(false);
+          setNoticeMessage(
+            `Konversi ke format ${convertTarget.toUpperCase()} memerlukan backend konversi.`
+          );
+          setDocsNoticeOpen(true);
+          return;
+        }
+
+        if (!res.ok) {
+          const errJson = await res.json().catch(() => ({}));
+          throw new Error(errJson.error || "Gagal mengunggah dokumen ke server konversi.");
+        }
+
+        const data = await res.json();
+        setProcessing(false);
+        alert(`Dokumen berhasil diantrekan! Job ID: ${data.jobId}`);
+        return;
+      }
+
+      // 3. Pure PDF Client-side Merge
       const isAllPdf = files.every((f) => f.name.toLowerCase().endsWith(".pdf"));
       const isAllImage = files.every(
         (f) =>
@@ -96,7 +179,7 @@ export default function HomePage() {
         return;
       }
 
-      // 3. Image Merge Mode
+      // 4. Image Merge Mode
       if (currentMode === "image_merge" || isAllImage) {
         setProcessing(true, "Memulai penyusunan gambar...");
         if (imageOutputMode === "pdf") {
@@ -114,7 +197,7 @@ export default function HomePage() {
         return;
       }
 
-      // 4. Heterogeneous Merge (Word .docx, PPTX, XLSX, etc.) -> Needs Backend API (Docker Gotenberg)
+      // 5. Heterogeneous Merge (Word .docx, PPTX, XLSX, etc.) -> Needs Backend API
       setProcessing(true, "Mengunggah dokumen ke server konversi worker...");
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
@@ -131,6 +214,7 @@ export default function HomePage() {
         });
       } catch (networkErr) {
         setProcessing(false);
+        setNoticeMessage("Penggabungan file DOCX/Word, PPTX, atau Excel memerlukan backend konversi.");
         setDocsNoticeOpen(true);
         return;
       }
@@ -166,7 +250,7 @@ export default function HomePage() {
       case "convert":
         return {
           title: "Konversi Format Berkas",
-          desc: "Ubah format berkas dokumen dan gambar dengan cepat dan mempertahankan kualitas aslinya.",
+          desc: "Ubah format berkas dokumen dan gambar dengan cepat sebagai JPG, PNG, SVG, PDF, Word, Docx, Sheets, atau Slides.",
         };
       default:
         return {
@@ -189,6 +273,39 @@ export default function HomePage() {
 
       <FileUploader />
       <Workspace />
+
+      {/* Convert Target Format Selector */}
+      {currentMode === "convert" && files.length > 0 && (
+        <div className="w-full max-w-4xl bg-white border border-slate-200 rounded-2xl p-6 shadow-sm mb-6 animate-in fade-in duration-200">
+          <div className="flex items-center gap-2 mb-4 text-slate-800 font-bold text-base">
+            <RefreshCw className="w-5 h-5 text-blue-600" />
+            <span>Pilih Format Tujuan Konversi</span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {convertOptions.map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setConvertTarget(opt.id)}
+                className={`flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                  convertTarget === opt.id
+                    ? "border-blue-600 bg-blue-50/70 text-blue-700 shadow-sm font-semibold"
+                    : "border-slate-200 hover:border-slate-300 bg-slate-50/50 text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                <div className="p-1.5 bg-white rounded-lg shadow-2xs">{opt.icon}</div>
+                <div>
+                  <div className="text-xs font-bold">{opt.label}</div>
+                  <div className="text-[10px] text-slate-400">
+                    {opt.isDirect ? "Langsung di browser" : "Konversi dokumen"}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Split PDF Page Selection Box */}
       {currentMode === "split" && files.length > 0 && (
@@ -298,6 +415,11 @@ export default function HomePage() {
                 <Scissors className="w-4 h-4" />
                 <span>Ekstrak & Unduh PDF</span>
               </>
+            ) : currentMode === "convert" ? (
+              <>
+                <RefreshCw className="w-4 h-4" />
+                <span>Konversi Sekarang</span>
+              </>
             ) : (
               <>
                 <Sparkles className="w-4 h-4" />
@@ -319,7 +441,7 @@ export default function HomePage() {
               Server Worker Dokumen Belum Aktif
             </h3>
             <p className="text-sm text-slate-600 mt-2 leading-relaxed">
-              Penggabungan file <strong>DOCX/Word, PPTX, atau Excel</strong> memerlukan backend konversi LibreOffice (Docker/Gotenberg) yang saat ini belum berjalan di <code>http://localhost:4000</code>.
+              {noticeMessage || "Penggabungan file DOCX/Word, PPTX, atau Excel memerlukan backend konversi."}
             </p>
             <div className="bg-slate-50 p-3 rounded-xl text-xs text-slate-500 mt-3">
               <strong>Solusi Cepat:</strong><br />
