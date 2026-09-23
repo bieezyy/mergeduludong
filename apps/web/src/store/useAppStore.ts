@@ -2,6 +2,9 @@ import { create } from "zustand";
 
 export type OperationMode = "document_merge" | "image_merge" | "split" | "convert";
 
+export type DocumentSubtype = "all" | "pdf" | "docs" | "slide" | "sheets";
+export type ImageSubtype = "all" | "jpeg" | "png" | "svg";
+
 export interface WorkspaceFile {
   id: string;
   file: File;
@@ -10,15 +13,25 @@ export interface WorkspaceFile {
   type: string;
   rotation: number; // 0, 90, 180, 270
   previewUrl?: string;
+  pageCount?: number;
 }
 
 interface AppState {
   currentMode: OperationMode;
+  docSubtype: DocumentSubtype;
+  imageSubtype: ImageSubtype;
+  splitRange: string;
+  splitMode: "range" | "all";
   files: WorkspaceFile[];
   isProcessing: boolean;
   statusMessage: string;
   setMode: (mode: OperationMode) => void;
+  setDocSubtype: (subtype: DocumentSubtype) => void;
+  setImageSubtype: (subtype: ImageSubtype) => void;
+  setSplitRange: (range: string) => void;
+  setSplitMode: (splitMode: "range" | "all") => void;
   addFiles: (newFiles: File[]) => void;
+  updateFilePageCount: (id: string, count: number) => void;
   removeFile: (id: string) => void;
   reorderFiles: (fromIndex: number, toIndex: number) => void;
   rotateFile: (id: string) => void;
@@ -28,11 +41,19 @@ interface AppState {
 
 export const useAppStore = create<AppState>((set) => ({
   currentMode: "document_merge",
+  docSubtype: "all",
+  imageSubtype: "all",
+  splitRange: "",
+  splitMode: "range",
   files: [],
   isProcessing: false,
   statusMessage: "",
 
   setMode: (mode) => set({ currentMode: mode, files: [] }),
+  setDocSubtype: (subtype) => set({ docSubtype: subtype }),
+  setImageSubtype: (subtype) => set({ imageSubtype: subtype }),
+  setSplitRange: (range) => set({ splitRange: range }),
+  setSplitMode: (splitMode) => set({ splitMode }),
 
   addFiles: (newFiles) =>
     set((state) => {
@@ -47,6 +68,11 @@ export const useAppStore = create<AppState>((set) => ({
       }));
       return { files: [...state.files, ...mapped] };
     }),
+
+  updateFilePageCount: (id, count) =>
+    set((state) => ({
+      files: state.files.map((f) => (f.id === id ? { ...f, pageCount: count } : f)),
+    })),
 
   removeFile: (id) =>
     set((state) => {

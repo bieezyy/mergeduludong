@@ -2,27 +2,97 @@
 
 import React, { useRef, useState } from "react";
 import { useAppStore } from "@/store/useAppStore";
+import { getPdfPageCount } from "@/lib/clientMergeEngine";
 import { UploadCloud, AlertCircle } from "lucide-react";
 
 export const FileUploader = () => {
-  const { currentMode, addFiles } = useAppStore();
+  const {
+    currentMode,
+    docSubtype,
+    imageSubtype,
+    addFiles,
+    updateFilePageCount,
+  } = useAppStore();
+
   const [isDragOver, setIsDragOver] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const acceptedExtensions =
-    currentMode === "image_merge"
-      ? [".jpg", ".jpeg", ".png", ".webp", ".svg"]
-      : [".pdf", ".docx", ".doc", ".odt", ".rtf", ".jpg", ".jpeg", ".png", ".webp", ".svg"];
+  // Dynamic accepted extensions based on currentMode and selected dropdown subtype
+  let acceptedExtensions: string[] = [];
 
-  const validateAndAdd = (incomingFiles: FileList | File[]) => {
+  if (currentMode === "document_merge") {
+    switch (docSubtype) {
+      case "pdf":
+        acceptedExtensions = [".pdf"];
+        break;
+      case "docs":
+        acceptedExtensions = [".docx", ".doc", ".odt", ".rtf"];
+        break;
+      case "slide":
+        acceptedExtensions = [".pptx", ".ppt", ".odp"];
+        break;
+      case "sheets":
+        acceptedExtensions = [".xlsx", ".xls", ".ods", ".csv"];
+        break;
+      default:
+        // All documents
+        acceptedExtensions = [
+          ".pdf",
+          ".docx",
+          ".doc",
+          ".odt",
+          ".rtf",
+          ".pptx",
+          ".ppt",
+          ".odp",
+          ".xlsx",
+          ".xls",
+          ".ods",
+          ".csv",
+        ];
+    }
+  } else if (currentMode === "image_merge") {
+    switch (imageSubtype) {
+      case "jpeg":
+        acceptedExtensions = [".jpg", ".jpeg"];
+        break;
+      case "png":
+        acceptedExtensions = [".png"];
+        break;
+      case "svg":
+        acceptedExtensions = [".svg"];
+        break;
+      default:
+        acceptedExtensions = [".jpg", ".jpeg", ".png", ".webp", ".svg"];
+    }
+  } else if (currentMode === "split") {
+    acceptedExtensions = [".pdf"];
+  } else if (currentMode === "convert") {
+    acceptedExtensions = [
+      ".pdf",
+      ".docx",
+      ".doc",
+      ".odt",
+      ".rtf",
+      ".jpg",
+      ".jpeg",
+      ".png",
+      ".webp",
+      ".svg",
+    ];
+  }
+
+  const validateAndAdd = async (incomingFiles: FileList | File[]) => {
     setErrorMessage(null);
     const validList: File[] = [];
 
     Array.from(incomingFiles).forEach((file) => {
       const ext = "." + file.name.split(".").pop()?.toLowerCase();
       if (!acceptedExtensions.includes(ext)) {
-        setErrorMessage(`Format ${ext} tidak didukung pada mode ini.`);
+        setErrorMessage(
+          `Format ${ext} tidak sesuai dengan kategori yang dipilih (${acceptedExtensions.join(", ")}).`
+        );
         return;
       }
       if (file.size > 50 * 1024 * 1024) {
@@ -34,6 +104,21 @@ export const FileUploader = () => {
 
     if (validList.length > 0) {
       addFiles(validList);
+
+      // Pre-calculate page counts for PDF files (important for Split PDF mode)
+      for (const file of validList) {
+        if (file.name.toLowerCase().endsWith(".pdf")) {
+          getPdfPageCount(file).then((count) => {
+            // Find matched workspace file
+            const matched = useAppStore
+              .getState()
+              .files.find((f) => f.file === file || (f.name === file.name && f.size === file.size));
+            if (matched) {
+              updateFilePageCount(matched.id, count);
+            }
+          });
+        }
+      }
     }
   };
 
@@ -64,7 +149,7 @@ export const FileUploader = () => {
         <input
           ref={fileInputRef}
           type="file"
-          multiple
+          multiple={currentMode !== "split"}
           accept={acceptedExtensions.join(",")}
           className="hidden"
           onChange={(e) => {
@@ -76,11 +161,11 @@ export const FileUploader = () => {
           <UploadCloud className="w-7 h-7" />
         </div>
 
-        <h3 className="text-lg font-semibold text-slate-800">
-          Tarik & Lepaskan file di sini, atau <span className="text-blue-600">Pilih File</span>
+        <h3 className="text-lg font-semibold text-slate-800 text-center">
+          Tarik & Lepaskan berkas di sini, atau <span className="text-blue-600">Pilih Berkas</span>
         </h3>
-        <p className="text-sm text-slate-500 mt-2">
-          Format didukung: {acceptedExtensions.join(", ")} (Maks 50MB per file)
+        <p className="text-xs text-slate-500 mt-2 text-center">
+          Format didukung: <span className="font-medium text-slate-700">{acceptedExtensions.join(", ")}</span> (Maks 50MB per file)
         </p>
       </div>
 

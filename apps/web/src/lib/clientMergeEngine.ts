@@ -36,6 +36,76 @@ export async function mergePdfClientSide(
 }
 
 /**
+ * Get total page count of a PDF file
+ */
+export async function getPdfPageCount(file: File): Promise<number> {
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdfDoc = await PDFDocument.load(arrayBuffer);
+    return pdfDoc.getPageCount();
+  } catch (err) {
+    console.error("Failed to load PDF page count:", err);
+    return 1;
+  }
+}
+
+/**
+ * Parse page range string like "1-3, 5, 7-9" into array of 0-based page indices
+ */
+export function parseRangeIndices(rangeStr: string, totalPages: number): number[] {
+  const targetIndices = new Set<number>();
+  const segments = rangeStr.split(",").map((s) => s.trim()).filter(Boolean);
+
+  for (const segment of segments) {
+    if (segment.includes("-")) {
+      const parts = segment.split("-").map((num) => parseInt(num.trim(), 10));
+      const start = parts[0];
+      const end = parts[1];
+      if (!isNaN(start) && !isNaN(end)) {
+        for (let p = Math.max(1, start); p <= Math.min(totalPages, end); p++) {
+          targetIndices.add(p - 1);
+        }
+      }
+    } else {
+      const pageNum = parseInt(segment, 10);
+      if (!isNaN(pageNum) && pageNum >= 1 && pageNum <= totalPages) {
+        targetIndices.add(pageNum - 1);
+      }
+    }
+  }
+
+  return Array.from(targetIndices).sort((a, b) => a - b);
+}
+
+/**
+ * Split PDF client-side by specific page ranges
+ */
+export async function splitPdfClientSide(
+  file: File,
+  rangeStr: string,
+  onProgress?: (progressText: string) => void
+): Promise<Blob> {
+  onProgress?.("Membaca berkas PDF...");
+  const arrayBuffer = await file.arrayBuffer();
+  const sourcePdf = await PDFDocument.load(arrayBuffer);
+  const totalPages = sourcePdf.getPageCount();
+
+  const indices = parseRangeIndices(rangeStr, totalPages);
+  if (indices.length === 0) {
+    throw new Error(`Range halaman tidak valid atau di luar jangkauan (1 - ${totalPages}).`);
+  }
+
+  onProgress?.(`Mengekstrak ${indices.length} halaman terpilih...`);
+  const newPdf = await PDFDocument.create();
+  const copiedPages = await newPdf.copyPages(sourcePdf, indices);
+  copiedPages.forEach((p) => newPdf.addPage(p));
+
+  onProgress?.("Menyimpan PDF hasil ekstrak...");
+  const pdfBytes = await newPdf.save();
+  return new Blob([pdfBytes.buffer as ArrayBuffer], { type: "application/pdf" });
+}
+
+/**
  * Convert and merge images into a Multi-page PDF (MDD-204 Mode 1)
  */
 export async function mergeImagesToPdfClientSide(
@@ -48,13 +118,22 @@ export async function mergeImagesToPdfClientSide(
     const item = files[i];
     onProgress?.(`Menyusun gambar ${i + 1} dari ${files.length}`);
 
-    const arrayBuffer = await item.file.arrayBuffer();
-    let image;
+    // If SVG, convert to PNG via canvas first
+    let arrayBuffer: ArrayBuffer;
+    let isPng = item.type.includes("png") || item.name.toLowerCase().endsWith(".png");
 
-    if (item.type.includes("png")) {
+    if (item.type.includes("svg") || item.name.toLowerCase().endsWith(".svg")) {
+      const pngBlob = await svgToPngBlob(item.file);
+      arrayBuffer = await pngBlob.arrayBuffer();
+      isPng = true;
+    } else {
+      arrayBuffer = await item.file.arrayBuffer();
+    }
+
+    let image;
+    if (isPng) {
       image = await pdfDoc.embedPng(arrayBuffer);
     } else {
-      // JPEG / WebP converted to JPG
       image = await pdfDoc.embedJpg(arrayBuffer);
     }
 
@@ -75,6 +154,34 @@ export async function mergeImagesToPdfClientSide(
 
   const pdfBytes = await pdfDoc.save();
   return new Blob([pdfBytes.buffer as ArrayBuffer], { type: "application/pdf" });
+}
+
+/**
+ * Helper to convert SVG File to PNG Blob using Canvas
+ */
+async function svgToPngBlob(svgFile: File): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(svgFile);
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth || 800;
+      canvas.height = img.naturalHeight || 600;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return reject(new Error("Canvas context failed"));
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(url);
+      canvas.toBlob((blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error("Failed to convert SVG to PNG"));
+      }, "image/png");
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Failed to load SVG image"));
+    };
+    img.src = url;
+  });
 }
 
 /**
@@ -103,11 +210,11 @@ export async function stitchImagesClientSide(
   let totalHeight = 0;
 
   if (direction === "vertical") {
-    totalWidth = Math.max(...loadedImages.map((img) => img.naturalWidth));
-    totalHeight = loadedImages.reduce((sum, img) => sum + img.naturalHeight, 0);
+    totalWidth = Math.max(...loadedImages.map((img) => img.naturalWidth || 400));
+    totalHeight = loadedImages.reduce((sum, img) => sum + (img.naturalHeight || 300), 0);
   } else {
-    totalWidth = loadedImages.reduce((sum, img) => sum + img.naturalWidth, 0);
-    totalHeight = Math.max(...loadedImages.map((img) => img.naturalHeight));
+    totalWidth = loadedImages.reduce((sum, img) => sum + (img.naturalWidth || 400), 0);
+    totalHeight = Math.max(...loadedImages.map((img) => img.naturalHeight || 300));
   }
 
   const canvas = document.createElement("canvas");
@@ -124,12 +231,14 @@ export async function stitchImagesClientSide(
   let currentOffset = 0;
   loadedImages.forEach((img, idx) => {
     onProgress?.(`Menggabungkan gambar ${idx + 1}...`);
+    const w = img.naturalWidth || 400;
+    const h = img.naturalHeight || 300;
     if (direction === "vertical") {
-      ctx.drawImage(img, (totalWidth - img.naturalWidth) / 2, currentOffset);
-      currentOffset += img.naturalHeight;
+      ctx.drawImage(img, (totalWidth - w) / 2, currentOffset);
+      currentOffset += h;
     } else {
-      ctx.drawImage(img, currentOffset, (totalHeight - img.naturalHeight) / 2);
-      currentOffset += img.naturalWidth;
+      ctx.drawImage(img, currentOffset, (totalHeight - h) / 2);
+      currentOffset += w;
     }
   });
 

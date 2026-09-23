@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    container_name: mdd-web-prod
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      - api
+    networks:
+      - mdd-network
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: mdd-api-prod
+    ports:
+      - "4000:4000"
+    environment:
+      - PORT=4000
+      - NODE_ENV=production
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - GOTENBERG_URL=http://gotenberg:3000
+      - UPLOAD_TEMP_DIR=/app/uploads_temp
+    depends_on:
+      - redis
+      - gotenberg
+    volumes:
+      - temp_storage:/app/uploads_temp
+    networks:
+      - mdd-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: mdd-redis-prod
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_prod_data:/data
+    networks:
+      - mdd-network
+
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    container_name: mdd-gotenberg-prod
+    environment:
+      - LOG_LEVEL=info
+    networks:
+      - mdd-network
+
+networks:
+  mdd-network:
+    driver: bridge
+
+volumes:
+  temp_storage:
+  redis_prod_data:
